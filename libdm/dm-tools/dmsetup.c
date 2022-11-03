@@ -1668,6 +1668,9 @@ static int _do_udevflags(CMD_ARGS, const char *cookie_str)
 					      "PRIMARY_SOURCE",
 					       0};
 
+	if (!cookie_str || !*cookie_str)
+		return 1;
+
 	if (!(cookie = _get_cookie_value(cookie_str)))
 		return_0;
 
