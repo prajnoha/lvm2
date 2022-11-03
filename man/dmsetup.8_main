@@ -335,7 +335,7 @@ dmsetup \(em low level logical volume management
 .HP
 .B dmsetup
 .de CMD_UDEVCOOKIES
-.  BR udevcookie
+.  BR udevcookies
 ..
 .CMD_UDEVCOOKIES
 .
@@ -361,6 +361,18 @@ dmsetup \(em low level logical volume management
 .  RI [ cookie ]
 ..
 .CMD_UDEVRELEASECOOKIE
+.
+.HP
+.B dmsetup
+.de CMD_UDEVVARS
+.  BR udevvars
+.  RB [ --flags
+.  IR cookie ]
+.  RB [ --info ]
+.  RB [ --splitname ]
+.  RI [ device_name ]
+..
+.CMD_UDEVVARS
 .
 .HP
 .B dmsetup
@@ -888,6 +900,17 @@ DM_UDEV_FLAG_<flag_name> = '1', DM_UDEV_FLAG<flag_position> = '1' otherwise.
 Subsystem udev flags don't have symbolic names assigned and these ones are
 always reported as DM_SUBSYSTEM_UDEV_FLAG<flag_position> = '1'. There are
 16 udev flags altogether.
+.
+.HP
+.CMD_UDEVVARS
+.br
+Combines \fBudevflags\fP, \fBinfo\fP and \fBsplitname\fP commands into a single command.
+The \fB--flags\fP parses given \fIcookie\fP and extract any udev control flags encoded.
+The \fB--info\fP causes device's name (DM_NAME), uuid (DM_UUID) and suspended state
+(DM_SUSPENDED) to be reported. The \fB--splitname\fP derives DM subsystem from prefix
+found in the uuid and, if possible, it splits the name into subsystem-specific
+constituents. All output is in environment key format (KEY="VALUE") that is
+accepted by udev rules for import.
 .
 .HP
 .CMD_UDEVRELEASECOOKIE

@@ -172,6 +172,7 @@ enum {
 	SELECT_ARG,
 	EXEC_ARG,
 	FILEMAP_ARG,
+	FLAGS_ARG,
 	FOLLOW_ARG,
 	FORCE_ARG,
 	FOREGROUND_ARG,
@@ -181,6 +182,7 @@ enum {
 	HELP_ARG,
 	HISTOGRAM_ARG,
 	INACTIVE_ARG,
+	INFO_ARG,
 	INTERVAL_ARG,
 	LENGTH_ARG,
 	MANGLENAME_ARG,
@@ -215,6 +217,7 @@ enum {
 	SETUUID_ARG,
 	SHOWKEYS_ARG,
 	SORT_ARG,
+	SPLITNAME_ARG,
 	START_ARG,
 	TABLE_ARG,
 	TARGET_ARG,
@@ -310,6 +313,7 @@ static uint64_t _last_interval = 0; /* approx. measured interval in nsecs */
  */
 
 #define CMD_ARGS const struct command *cmd, const char *subcommand, int argc, char **argv, struct dm_names *names, int multiple_devices
+#define CMD_ARGS_PASS cmd, subcommand, argc, argv, names, multiple_devices
 typedef int (*command_fn) (CMD_ARGS);
 
 struct command {
@@ -1650,7 +1654,7 @@ static uint32_t _get_cookie_value(const char *str_value)
 	return (uint32_t) value;
 }
 
-static int _udevflags(CMD_ARGS)
+static int _do_udevflags(CMD_ARGS, const char *cookie_str)
 {
 	uint32_t cookie;
 	uint16_t flags;
@@ -1664,7 +1668,7 @@ static int _udevflags(CMD_ARGS)
 					      "PRIMARY_SOURCE",
 					       0};
 
-	if (!(cookie = _get_cookie_value(argv[0])))
+	if (!(cookie = _get_cookie_value(cookie_str)))
 		return_0;
 
 	flags = cookie >> DM_UDEV_FLAGS_SHIFT;
@@ -1688,6 +1692,35 @@ static int _udevflags(CMD_ARGS)
 				printf("DM_SUBSYSTEM_UDEV_FLAG%d='1'\n",
 					i - DM_UDEV_FLAGS_SHIFT / 2);
 		}
+
+	return 1;
+}
+
+static int _udevflags(CMD_ARGS)
+{
+	return _do_udevflags(CMD_ARGS_PASS, argv[0]);
+}
+
+static int _report_init(const struct command *cmd, const char *subcommand);
+static int _info(CMD_ARGS);
+
+static int _udevvars(CMD_ARGS)
+{
+	if (_switches[FLAGS_ARG]) {
+		if (!_do_udevflags(CMD_ARGS_PASS, _string_args[FLAGS_ARG]))
+			return_0;
+	}
+
+	if (_switches[INFO_ARG] || _switches[SPLITNAME_ARG]) {
+		if (!_report_init(cmd, ""))
+			return_0;
+
+		_info(CMD_ARGS_PASS);
+		dm_report_output(_report);
+
+		dm_report_free(_report);
+		_report = NULL;
+	}
 
 	return 1;
 }
@@ -4690,7 +4723,9 @@ FIELD_F(STATS_META, STR, "ObjType", 7, dm_stats_object_type, "obj_type", "Type o
 #undef SIZ
 
 static const char *_default_report_options = "name,major,minor,attr,open,segments,events,uuid";
-static const char *_splitname_report_options = "vg_name,lv_name,lv_layer";
+static const char *_default_udevvars_info_report_options = "name,uuid,suspended";
+static const char *_default_udevvars_info_splitname_report_options = "name,uuid,suspended,vg_name,lv_name,lv_layer";
+static const char *_default_splitname_report_options = "vg_name,lv_name,lv_layer";
 
 /* Stats counters & derived metrics. */
 #define RD_COUNTERS "read_count,reads_merged_count,read_sector_count,read_time,read_ticks"
@@ -4736,8 +4771,28 @@ static int _report_init(const struct command *cmd, const char *subcommand)
 	size_t len = 0;
 	int r = 0;
 
+	if (cmd && !strcmp(cmd->name, "udevvars")) {
+		if (_switches[INFO_ARG] && _switches[SPLITNAME_ARG])
+			options = (char *) _default_udevvars_info_splitname_report_options;
+		else if (_switches[INFO_ARG] && !_switches[SPLITNAME_ARG])
+			options = (char *) _default_udevvars_info_report_options;
+		else if (!_switches[INFO_ARG] && _switches[SPLITNAME_ARG])
+			options = (char *) _default_splitname_report_options;
+		else {
+			_report = NULL;
+			return 1;
+		}
+
+		/* Format for udevvars is hardcoded so it complies with udev! */
+		_switches[COLS_ARG]++;
+		_switches[NAMEPREFIXES_ARG]++;
+		_switches[NOHEADINGS_ARG]++;
+		_switches[ROWS_ARG]++;
+		_report_type |= DR_INFO;
+	}
+
 	if (cmd && !strcmp(cmd->name, "splitname")) {
-		options = (char *) _splitname_report_options;
+		options = (char *) _default_splitname_report_options;
 		_report_type |= DR_NAME;
 	}
 
@@ -6277,6 +6332,7 @@ static struct command _dmsetup_commands[] = {
 	{"udevcomplete", "<cookie>", 1, 1, 0, 0, _udevcomplete},
 	{"udevcomplete_all", "[<age_in_minutes>]", 0, 1, 0, 0, _udevcomplete_all},
 	{"udevcookies", "", 0, 0, 0, 0, _udevcookies},
+	{"udevvars", "[--flags <cookie>] [--info ] [--splitname] [<device>]", 0, -1, 0, 0, _udevvars},
 	{"target-version", "[<target>...]", 1, -1, 1, 0, _target_version},
 	{"targets", "", 0, 0, 0, 0, _targets},
 	{"version", "", 0, 0, 0, 0, _version},
@@ -6855,6 +6911,7 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 		{"select", 1, &ind, SELECT_ARG},
 		{"exec", 1, &ind, EXEC_ARG},
 		{"filemap", 0, &ind, FILEMAP_ARG},
+		{"flags", 1, &ind, FLAGS_ARG},
 		{"follow", 1, &ind, FOLLOW_ARG},
 		{"force", 0, &ind, FORCE_ARG},
 		{"foreground", 0, &ind, FOREGROUND_ARG},
@@ -6864,6 +6921,7 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 		{"help", 0, &ind, HELP_ARG},
 		{"histogram", 0, &ind, HISTOGRAM_ARG},
 		{"inactive", 0, &ind, INACTIVE_ARG},
+		{"info", 0, &ind, INFO_ARG},
 		{"interval", 1, &ind, INTERVAL_ARG},
 		{"length", 1, &ind, LENGTH_ARG},
 		{"manglename", 1, &ind, MANGLENAME_ARG},
@@ -6899,6 +6957,7 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 		{"setuuid", 0, &ind, SETUUID_ARG},
 		{"showkeys", 0, &ind, SHOWKEYS_ARG},
 		{"sort", 1, &ind, SORT_ARG},
+		{"splitname", 0, &ind, SPLITNAME_ARG},
 		{"start", 1, &ind, START_ARG},
 		{"table", 1, &ind, TABLE_ARG},
 		{"target", 1, &ind, TARGET_ARG},
@@ -7026,6 +7085,10 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 			_switches[COLS_ARG]++;
 		if (ind == FILEMAP_ARG)
 			_switches[FILEMAP_ARG]++;
+		if (ind == FLAGS_ARG) {
+			_switches[FLAGS_ARG]++;
+			_string_args[FLAGS_ARG] = optarg;
+		}
 		if (ind == FOLLOW_ARG) {
 			_switches[FOLLOW_ARG]++;
 			_string_args[FOLLOW_ARG] = optarg;
@@ -7038,6 +7101,8 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 			_switches[READ_ONLY]++;
 		if (ind == HISTOGRAM_ARG)
 			_switches[HISTOGRAM_ARG]++;
+		if (ind == INFO_ARG)
+			_switches[INFO_ARG]++;
 		if (ind == LENGTH_ARG) {
 			_switches[LENGTH_ARG]++;
 			_string_args[LENGTH_ARG] = optarg;
@@ -7235,6 +7300,8 @@ static int _process_switches(int *argcp, char ***argvp, const char *dev_dir)
 			_switches[SETUUID_ARG]++;
 		if (ind == SHOWKEYS_ARG)
 			_switches[SHOWKEYS_ARG]++;
+		if (ind == SPLITNAME_ARG)
+			_switches[SPLITNAME_ARG]++;
 		if (ind == TABLE_ARG) {
 			_switches[TABLE_ARG]++;
 			if (!(_table = strdup(optarg))) {
@@ -7433,10 +7500,10 @@ unknown:
 	}
 
 	if (_switches[COLS_ARG]) {
-		if (!_report_init(cmd, subcommand))
+		if (!_report_init(cmd, subcommand)) {
 			ret = 1;
-		if (ret || !_report)
-			goto_out;
+			goto out;
+		}
 	}
 
 	if (_switches[COUNT_ARG] && _int_args[COUNT_ARG])
